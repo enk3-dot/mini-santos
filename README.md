@@ -36,7 +36,8 @@ This is **step 1 of a growing project**: a minimal but real open-world core (cit
 - **Wanted system**: hit a pedestrian → +1 star (max 3); stars decay after 20 clean seconds
 - **Police AI**: a pursuit cruiser with flashing lights spawns when wanted; get caught on foot → busted, lose $300
 - **Character switching**: F. Clinton, M. De Santa, T. Philips — each with a distinct color and spawn point
-- **Mission manager**: sequential missions with objective text, target marker, car requirements, a timed "The Getaway" mission, rewards, failures/retries, ending in free roam
+- **Mission manager**: staged, data-driven missions — including "Repossession" (steal a marked car, deliver it to the dealership) and "The North Yankton Job" (heist the bank, grab the cash, sprint to the getaway car, escape under 3-star heat in falling snow), with rewards, failures/retries, ending in free roam
+- **Police escalation**: one pursuit cruiser at 1–2 stars, two at 3 stars, faster with every star
 - **HUD**: character name, money, wanted stars, objective line, event toasts
 
 ## Structure

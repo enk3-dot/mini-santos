@@ -46,7 +46,7 @@ export default class Game {
     this.activeChar = 0;
     this.currentCar = null;
     this.playerCar = null;
-    this.police = null;
+    this.police = [];
     this.toastTimer = 0;
 
     this.city = new City(this.scene);
@@ -64,6 +64,8 @@ export default class Game {
     this.missions = new Missions(this.scene, this);
     this.minimap = new Minimap(document.getElementById("minimap"));
     this.cameraFocus = new THREE.Vector3();
+
+    this.snow = this.buildSnow();
 
     this.dayRate = 1 / 150;
     this.dayTime = 0.25;
@@ -98,16 +100,84 @@ export default class Game {
     this.wanted = 0;
     this.currentCar = null;
     this.removePolice();
+    this.setSnow(false);
     this.player.setCharacter(this.characters[0]);
-    this.missions.index = -1;
-    this.missions.freeRoam = false;
-    this.missions.cooldown = 0;
+    this.missions.reset();
     this.missions.startNext();
     document.getElementById("overlay").classList.add("hidden");
   }
 
   inputAllowed() {
     return this.state === "playing";
+  }
+
+  buildSnow() {
+    const count = 900;
+    const positions = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      positions[i * 3] = (Math.random() * 2 - 1) * 90;
+      positions[i * 3 + 1] = Math.random() * 40;
+      positions[i * 3 + 2] = (Math.random() * 2 - 1) * 90;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    const points = new THREE.Points(
+      geometry,
+      new THREE.PointsMaterial({
+        color: 0xffffff,
+        size: 0.35,
+        transparent: true,
+        opacity: 0.9
+      })
+    );
+    points.visible = false;
+    this.scene.add(points);
+    return points;
+  }
+
+  setSnow(on) {
+    this.snow.visible = on;
+  }
+
+  updateSnow(dt) {
+    if (!this.snow.visible) return;
+    this.snow.position.set(this.cameraFocus.x, 0, this.cameraFocus.z);
+    const attr = this.snow.geometry.attributes.position;
+    for (let i = 1; i < attr.array.length; i += 3) {
+      attr.array[i] -= dt * 9;
+      if (attr.array[i] < 0) attr.array[i] += 40;
+    }
+    attr.needsUpdate = true;
+  }
+
+  spawnExtraCar(x, z, color) {
+    const car = new Car(this.scene, x, z, 0, color);
+    car.extra = true;
+    this.cars.push(car);
+    return car;
+  }
+
+  despawnCar(car) {
+    this.cars = this.cars.filter((entry) => entry !== car);
+    if (this.currentCar === car) {
+      this.mode = "onFoot";
+      this.currentCar = null;
+      this.playerCar = null;
+      this.player.group.visible = true;
+      this.player.position.y = 0;
+    }
+    this.scene.remove(car.group);
+  }
+
+  setWanted(stars) {
+    this.wanted = Math.min(3, stars);
+    this.lastCrime = this.clock.getElapsedTime();
+    this.ensurePolice();
+  }
+
+  clearHeat() {
+    this.wanted = 0;
+    this.removePolice();
   }
 
   showToast(text) {
@@ -124,16 +194,22 @@ export default class Game {
   }
 
   ensurePolice() {
-    if (!this.police) {
-      this.police = new Car(this.scene, 0, -76, 0, 0xffffff, true);
+    const target = this.wanted >= 3 ? 2 : 1;
+    const spots = [
+      this.player.position.clone().add(new THREE.Vector3(30, 0, 30)),
+      this.player.position.clone().add(new THREE.Vector3(-30, 0, 30))
+    ];
+    while (this.police.length < target) {
+      const spot = spots[this.police.length % spots.length];
+      this.police.push(new Car(this.scene, spot.x, spot.z, 0, 0xffffff, true));
     }
   }
 
   removePolice() {
-    if (this.police) {
-      this.scene.remove(this.police.group);
-      this.police = null;
+    for (const cruiser of this.police) {
+      this.scene.remove(cruiser.group);
     }
+    this.police = [];
   }
 
   arrest() {
@@ -202,13 +278,13 @@ export default class Game {
     const night = 1 - this.daylight;
     for (const car of this.cars) car.updateHeadlights(night * (0.25 + night * 0.75));
     for (const trafficCar of this.traffic) trafficCar.headlight.intensity = night * 2.2;
-    if (this.police) this.police.updateHeadlights(night);
+    for (const cruiser of this.police) cruiser.updateHeadlights(night);
     if (this.currentCar) this.currentCar.updateHeadlights(night);
   }
 
   obstaclesForTraffic(self) {
     const list = [];
-    if (this.police) list.push(this.police.position);
+    for (const cruiser of this.police) list.push(cruiser.position);
     for (const car of this.cars) list.push(car.position);
     for (const trafficCar of this.traffic) {
       if (trafficCar !== self) list.push(trafficCar.group.position);
@@ -224,6 +300,7 @@ export default class Game {
     }
 
     this.updateDayNight(dt);
+    this.updateSnow(dt);
 
     if (this.input.consumeInteract()) this.tryInteract();
     if (this.input.consumeSwitch()) this.switchCharacter();
@@ -280,13 +357,17 @@ export default class Game {
   }
 
   updatePolice(dt) {
-    if (!this.police) return;
+    if (this.police.length === 0) return;
     const targetPos = this.mode === "driving" ? this.playerCar.position : this.player.position;
-    this.police.steerToward(targetPos, dt, this, 21);
 
-    const near = this.police.position.distanceTo(targetPos);
-    if (near < 3.5 && this.mode === "onFoot") {
-      this.arrest();
+    for (const cruiser of this.police) {
+      cruiser.headlight.intensity = (1 - this.daylight) * 2.2;
+      cruiser.steerToward(targetPos, dt, this, 19 + this.wanted * 2);
+
+      if (cruiser.position.distanceTo(targetPos) < 3.5 && this.mode === "onFoot") {
+        this.arrest();
+        return;
+      }
     }
   }
 

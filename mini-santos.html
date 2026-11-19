@@ -914,9 +914,9 @@ class Minimap {
       ctx.fillRect(cx - 1.5, cy - 1.5, 3, 3);
     }
 
-    if (game.police) {
-      const flash = Math.floor(performance.now() / 250) % 2 === 0;
-      const [cx, cy] = this.toScreen(game.police.position.x, game.police.position.z);
+    const flash = Math.floor(performance.now() / 250) % 2 === 0;
+    for (const cruiser of game.police) {
+      const [cx, cy] = this.toScreen(cruiser.position.x, cruiser.position.z);
       ctx.fillStyle = flash ? "#ff4444" : "#4466ff";
       ctx.fillRect(cx - 2.5, cy - 2.5, 5, 5);
     }
@@ -964,22 +964,42 @@ const MISSIONS = [
   },
   {
     name: "The Getaway",
-    text: "Lose the heat, then reach the docks marker",
+    text: "Reach the docks marker before the timer runs out",
     target: { x: 40, z: 40 },
     requiresCar: true,
     reward: 1500,
     timeLimit: 75
+  },
+  {
+    name: "Repossession",
+    type: "repo",
+    reward: 2000,
+    dealership: { x: 52, z: -34.5 }
+  },
+  {
+    name: "The North Yankton Job",
+    type: "heist",
+    reward: 5000,
+    bank: { x: 16, z: 16 },
+    safehouse: { x: 58, z: 66.5 },
+    timeLimit: 90
   }
 ];
+
+const HOLD_DURATION = 3;
 
 class Missions {
   constructor(scene, game) {
     this.scene = scene;
     this.game = game;
     this.index = -1;
+    this.stage = 0;
+    this.stageTimer = 0;
     this.timeLeft = 0;
     this.cooldown = 0;
     this.freeRoam = false;
+    this.repoCar = null;
+    this.getawayCar = null;
 
     this.marker = new THREE.Mesh(
       new THREE.CylinderGeometry(2, 2, 12, 24, 1, true),
@@ -999,11 +1019,43 @@ class Missions {
     return this.index >= 0 && this.index < MISSIONS.length ? MISSIONS[this.index] : null;
   }
 
+  reset() {
+    this.index = -1;
+    this.stage = 0;
+    this.stageTimer = HOLD_DURATION;
+    this.cooldown = 0;
+    this.freeRoam = false;
+    this.timeLeft = 0;
+    if (this.repoCar) {
+      this.game.despawnCar(this.repoCar);
+      this.repoCar = null;
+    }
+    if (this.getawayCar) {
+      this.game.despawnCar(this.getawayCar);
+      this.getawayCar = null;
+    }
+    this.marker.visible = false;
+  }
+
   objectiveText() {
     if (this.freeRoam) return "Free roam — Mini Santos is yours";
     const mission = this.current;
     if (!mission) return "";
-    let text = `${mission.name}: ${mission.text}`;
+    const name = mission.name;
+    if (mission.type === "repo") {
+      return this.stage === 0
+        ? `${name}: Steal the marked car anywhere in town`
+        : `${name}: Deliver it to the dealership`;
+    }
+    if (mission.type === "heist") {
+      switch (this.stage) {
+        case 0: return `${name}: Go to the bank`;
+        case 1: return `${name}: GRAB THE CASH! (${this.stageTimer.toFixed(1)}s)`;
+        case 2: return `${name}: Get to the getaway car!`;
+        default: return `${name}: Escape to the safehouse  [${this.timeLeft.toFixed(0)}s]`;
+      }
+    }
+    let text = `${name}: ${mission.text}`;
     if (mission.timeLimit) text += `  [${this.timeLeft.toFixed(0)}s]`;
     return text;
   }
@@ -1017,13 +1069,24 @@ class Missions {
       return;
     }
     this.index = next;
+    this.stage = 0;
+    this.stageTimer = HOLD_DURATION;
     const mission = this.current;
-    if (mission.timeLimit) this.timeLeft = mission.timeLimit;
+
+    if (mission.type === "repo") {
+      const point = randomRoadPoint();
+      this.repoCar = this.game.spawnExtraCar(point.x, point.z, 0x8f2bd8);
+      this.marker.visible = true;
+    } else if (mission.type === "heist") {
+      this.marker.position.set(mission.bank.x, 6, mission.bank.z);
+      this.marker.visible = true;
+    } else if (mission.timeLimit) {
+      this.timeLeft = mission.timeLimit;
+    }
+
     if (mission.target) {
       this.marker.position.set(mission.target.x, 6, mission.target.z);
       this.marker.visible = true;
-    } else {
-      this.marker.visible = false;
     }
     this.game.showToast(`Mission: ${mission.name}`);
   }
@@ -1031,14 +1094,26 @@ class Missions {
   complete(mission) {
     this.game.money += mission.reward;
     this.game.showToast(`${mission.name} complete  +$${mission.reward}`);
+    if (this.repoCar) {
+      this.game.despawnCar(this.repoCar);
+      this.repoCar = null;
+    }
+    if (this.getawayCar) {
+      this.game.despawnCar(this.getawayCar);
+      this.getawayCar = null;
+    }
+    if (mission.type === "heist") {
+      this.game.setSnow(false);
+      this.game.clearHeat();
+    }
     this.marker.visible = false;
     this.index = MISSIONS.length;
     this.cooldown = 4;
   }
 
-  fail(mission) {
-    this.game.showToast("Mission failed — try again");
-    this.timeLeft = mission.timeLimit;
+  failHeist() {
+    this.game.showToast("Trail went cold... retry: reach the safehouse!");
+    this.timeLeft = this.current.timeLimit;
   }
 
   update(dt) {
@@ -1050,29 +1125,115 @@ class Missions {
     if (this.freeRoam || !this.current) return;
 
     const mission = this.current;
+    const type = mission.type;
+
+    if (type === "repo") {
+      this.updateRepo(mission);
+      return;
+    }
+    if (type === "heist") {
+      this.updateHeist(mission, dt);
+      return;
+    }
+
     if (mission.timeLimit) {
       this.timeLeft -= dt;
       if (this.timeLeft <= 0) {
-        this.fail(mission);
+        this.game.showToast("Mission failed — try again");
+        this.timeLeft = mission.timeLimit;
         return;
       }
     }
 
     const inCar = this.game.mode === "driving";
-    if (mission.requiresCar && !inCar && !mission.target) return;
-    if (mission.requiresCar && mission.target && !inCar) return;
+    if (mission.requiresCar && !inCar) return;
 
     if (mission.target) {
       const pos = inCar ? this.game.playerCar.position : this.game.player.position;
       const dx = pos.x - mission.target.x;
       const dz = pos.z - mission.target.z;
-      const entered = dx * dx + dz * dz < 9;
-      if (!entered) return;
-    } else if (!inCar) {
-      return;
+      if (dx * dx + dz * dz >= 9) return;
     }
 
     this.complete(mission);
+  }
+
+  updateRepo(mission) {
+    if (this.stage === 0) {
+      if (!this.repoCar) {
+        const point = randomRoadPoint();
+        this.repoCar = this.game.spawnExtraCar(point.x, point.z, 0x8f2bd8);
+      } else {
+        this.marker.position.set(this.repoCar.position.x, 5, this.repoCar.position.z);
+        if (this.game.playerCar === this.repoCar) {
+          this.stage = 1;
+          this.marker.position.set(mission.dealership.x, 6, mission.dealership.z);
+          this.game.showToast("Nice. Now deliver it to the dealership!");
+        }
+      }
+      return;
+    }
+
+    const pos = this.game.playerCar ? this.game.playerCar.position : this.game.player.position;
+    const dx = pos.x - mission.dealership.x;
+    const dz = pos.z - mission.dealership.z;
+    if (dx * dx + dz * dz < 20) {
+      this.complete(mission);
+    }
+  }
+
+  updateHeist(mission, dt) {
+    const playerPos = this.game.mode === "driving" ? this.game.playerCar.position : this.game.player.position;
+
+    if (this.stage === 0) {
+      this.marker.position.set(mission.bank.x, 6, mission.bank.z);
+      const dx = playerPos.x - mission.bank.x;
+      const dz = playerPos.z - mission.bank.z;
+      if (dx * dx + dz * dz < 16) {
+        this.stage = 1;
+        this.stageTimer = HOLD_DURATION;
+      }
+      return;
+    }
+
+    if (this.stage === 1) {
+      const dx = playerPos.x - mission.bank.x;
+      const dz = playerPos.z - mission.bank.z;
+      if (dx * dx + dz * dz < 16) {
+        this.stageTimer -= dt;
+        if (this.stageTimer <= 0) {
+          this.stage = 2;
+          this.game.setWanted(3);
+          this.game.setSnow(true);
+          this.getawayCar = this.game.spawnExtraCar(16, 2.5, 0x101418);
+          this.game.showToast("ALARM TRIPPED! To the getaway car!");
+          this.marker.visible = true;
+        }
+      } else {
+        this.stageTimer = Math.min(HOLD_DURATION, this.stageTimer + dt);
+      }
+      return;
+    }
+
+    if (this.stage === 2) {
+      this.marker.position.set(this.getawayCar.position.x, 5, this.getawayCar.position.z);
+      if (this.game.playerCar === this.getawayCar) {
+        this.stage = 3;
+        this.timeLeft = mission.timeLimit;
+        this.marker.position.set(mission.safehouse.x, 6, mission.safehouse.z);
+        this.game.showToast("DRIVE! Get to the safehouse!");
+      }
+      return;
+    }
+
+    this.timeLeft -= dt;
+    const dx = playerPos.x - mission.safehouse.x;
+    const dz = playerPos.z - mission.safehouse.z;
+    if (dx * dx + dz * dz < 25) {
+      this.complete(mission);
+    } else if (this.timeLeft <= 0) {
+      this.failHeist();
+    }
   }
 }
 
@@ -1114,7 +1275,7 @@ class Game {
     this.activeChar = 0;
     this.currentCar = null;
     this.playerCar = null;
-    this.police = null;
+    this.police = [];
     this.toastTimer = 0;
 
     this.city = new City(this.scene);
@@ -1132,6 +1293,8 @@ class Game {
     this.missions = new Missions(this.scene, this);
     this.minimap = new Minimap(document.getElementById("minimap"));
     this.cameraFocus = new THREE.Vector3();
+
+    this.snow = this.buildSnow();
 
     this.dayRate = 1 / 150;
     this.dayTime = 0.25;
@@ -1166,16 +1329,84 @@ class Game {
     this.wanted = 0;
     this.currentCar = null;
     this.removePolice();
+    this.setSnow(false);
     this.player.setCharacter(this.characters[0]);
-    this.missions.index = -1;
-    this.missions.freeRoam = false;
-    this.missions.cooldown = 0;
+    this.missions.reset();
     this.missions.startNext();
     document.getElementById("overlay").classList.add("hidden");
   }
 
   inputAllowed() {
     return this.state === "playing";
+  }
+
+  buildSnow() {
+    const count = 900;
+    const positions = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      positions[i * 3] = (Math.random() * 2 - 1) * 90;
+      positions[i * 3 + 1] = Math.random() * 40;
+      positions[i * 3 + 2] = (Math.random() * 2 - 1) * 90;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    const points = new THREE.Points(
+      geometry,
+      new THREE.PointsMaterial({
+        color: 0xffffff,
+        size: 0.35,
+        transparent: true,
+        opacity: 0.9
+      })
+    );
+    points.visible = false;
+    this.scene.add(points);
+    return points;
+  }
+
+  setSnow(on) {
+    this.snow.visible = on;
+  }
+
+  updateSnow(dt) {
+    if (!this.snow.visible) return;
+    this.snow.position.set(this.cameraFocus.x, 0, this.cameraFocus.z);
+    const attr = this.snow.geometry.attributes.position;
+    for (let i = 1; i < attr.array.length; i += 3) {
+      attr.array[i] -= dt * 9;
+      if (attr.array[i] < 0) attr.array[i] += 40;
+    }
+    attr.needsUpdate = true;
+  }
+
+  spawnExtraCar(x, z, color) {
+    const car = new Car(this.scene, x, z, 0, color);
+    car.extra = true;
+    this.cars.push(car);
+    return car;
+  }
+
+  despawnCar(car) {
+    this.cars = this.cars.filter((entry) => entry !== car);
+    if (this.currentCar === car) {
+      this.mode = "onFoot";
+      this.currentCar = null;
+      this.playerCar = null;
+      this.player.group.visible = true;
+      this.player.position.y = 0;
+    }
+    this.scene.remove(car.group);
+  }
+
+  setWanted(stars) {
+    this.wanted = Math.min(3, stars);
+    this.lastCrime = this.clock.getElapsedTime();
+    this.ensurePolice();
+  }
+
+  clearHeat() {
+    this.wanted = 0;
+    this.removePolice();
   }
 
   showToast(text) {
@@ -1192,16 +1423,22 @@ class Game {
   }
 
   ensurePolice() {
-    if (!this.police) {
-      this.police = new Car(this.scene, 0, -76, 0, 0xffffff, true);
+    const target = this.wanted >= 3 ? 2 : 1;
+    const spots = [
+      this.player.position.clone().add(new THREE.Vector3(30, 0, 30)),
+      this.player.position.clone().add(new THREE.Vector3(-30, 0, 30))
+    ];
+    while (this.police.length < target) {
+      const spot = spots[this.police.length % spots.length];
+      this.police.push(new Car(this.scene, spot.x, spot.z, 0, 0xffffff, true));
     }
   }
 
   removePolice() {
-    if (this.police) {
-      this.scene.remove(this.police.group);
-      this.police = null;
+    for (const cruiser of this.police) {
+      this.scene.remove(cruiser.group);
     }
+    this.police = [];
   }
 
   arrest() {
@@ -1270,13 +1507,13 @@ class Game {
     const night = 1 - this.daylight;
     for (const car of this.cars) car.updateHeadlights(night * (0.25 + night * 0.75));
     for (const trafficCar of this.traffic) trafficCar.headlight.intensity = night * 2.2;
-    if (this.police) this.police.updateHeadlights(night);
+    for (const cruiser of this.police) cruiser.updateHeadlights(night);
     if (this.currentCar) this.currentCar.updateHeadlights(night);
   }
 
   obstaclesForTraffic(self) {
     const list = [];
-    if (this.police) list.push(this.police.position);
+    for (const cruiser of this.police) list.push(cruiser.position);
     for (const car of this.cars) list.push(car.position);
     for (const trafficCar of this.traffic) {
       if (trafficCar !== self) list.push(trafficCar.group.position);
@@ -1292,6 +1529,7 @@ class Game {
     }
 
     this.updateDayNight(dt);
+    this.updateSnow(dt);
 
     if (this.input.consumeInteract()) this.tryInteract();
     if (this.input.consumeSwitch()) this.switchCharacter();
@@ -1348,13 +1586,17 @@ class Game {
   }
 
   updatePolice(dt) {
-    if (!this.police) return;
+    if (this.police.length === 0) return;
     const targetPos = this.mode === "driving" ? this.playerCar.position : this.player.position;
-    this.police.steerToward(targetPos, dt, this, 21);
 
-    const near = this.police.position.distanceTo(targetPos);
-    if (near < 3.5 && this.mode === "onFoot") {
-      this.arrest();
+    for (const cruiser of this.police) {
+      cruiser.headlight.intensity = (1 - this.daylight) * 2.2;
+      cruiser.steerToward(targetPos, dt, this, 19 + this.wanted * 2);
+
+      if (cruiser.position.distanceTo(targetPos) < 3.5 && this.mode === "onFoot") {
+        this.arrest();
+        return;
+      }
     }
   }
 

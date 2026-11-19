@@ -59,9 +59,9 @@ export default class Minimap {
       ctx.fillRect(cx - 1.5, cy - 1.5, 3, 3);
     }
 
-    if (game.police) {
-      const flash = Math.floor(performance.now() / 250) % 2 === 0;
-      const [cx, cy] = this.toScreen(game.police.position.x, game.police.position.z);
+    const flash = Math.floor(performance.now() / 250) % 2 === 0;
+    for (const cruiser of game.police) {
+      const [cx, cy] = this.toScreen(cruiser.position.x, cruiser.position.z);
       ctx.fillStyle = flash ? "#ff4444" : "#4466ff";
       ctx.fillRect(cx - 2.5, cy - 2.5, 5, 5);
     }

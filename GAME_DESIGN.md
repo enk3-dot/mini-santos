@@ -18,7 +18,7 @@ A living, breathing city — Mini Santos — where the world feels alive even wh
 | Wanted-level system with escalating police | ✅ v0.1 (1–3 stars, pursuit cruiser) | `src/game.js` |
 | Radar/minimap with objective marker | ✅ v0.2 | `src/minimap.js` |
 | Three protagonists, character switching | ✅ v0.1 (spawn/colors) | `src/game.js` |
-| Mission system: objectives, markers, rewards | ✅ v0.1 (4 missions + free roam) | `src/missions.js` |
+| Mission system: objectives, markers, rewards | ✅ v0.3 (6 staged missions incl. heist + repo, free roam) | `src/missions.js` |
 | Money economy | ✅ v0.1 (rewards, bust penalty) | `src/game.js` |
 | Combat: shooting, health, armor | ⬜ Phase 3 | — |
 | Special abilities (bullet time, driving focus, rage) | ⬜ Phase 3 | — |
@@ -44,6 +44,8 @@ A 150-second cycle drives sun/hemisphere intensity, sky and fog color lerp, stre
 Data-driven mission definitions (`MISSIONS`): objective text, target marker, optional car requirement, optional time limit, money reward, fail/retry, and completion chains into free roam.
 
 ## Roadmap
+
+- **v0.3 heist/repo missions**: “The North Yankton Job” mirrors the GTA V prologue structure — bank approach, cash-grab hold, instant 3-star alarm, getaway car sprint, timed escape to the safehouse — with falling snow during the job. “Repossession” mirrors Franklin’s repo job: a marked car spawns across town; steal it, deliver it to the dealership.
 
 - **Phase 3 — Player power**: shooting raycast, health/armor, police gunfire escalation, character special abilities
 - **Phase 4 — Economy**: shops, garages, property purchase, save/load via localStorage, GPS route drawing
