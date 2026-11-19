@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mini Santos</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="hud">
+    <span id="char">F. CLINTON</span>
+    <span id="money">$0</span>
+    <span id="wanted"></span>
+  </div>
+  <div id="objective"></div>
+  <div id="toast"></div>
+
+  <div id="overlay">
+    <h1>Mini Santos</h1>
+    <p>A tiny open-world slice: walk, steal a car, run missions, dodge the cops.</p>
+    <p class="controls">
+      WASD / Arrows: move &amp; drive &nbsp;|&nbsp; Shift: sprint<br />
+      Space: jump &nbsp;|&nbsp; E: enter / exit car &nbsp;|&nbsp; T: switch character
+    </p>
+    <button id="start-button">Start</button>
+    <button id="restart-button" class="hidden">Keep Playing</button>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+      }
+    }
+  </script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
