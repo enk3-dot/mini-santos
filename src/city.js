@@ -57,14 +57,37 @@ export function randomRoadPoint(random = Math.random) {
   return { x: along, z: line + lane };
 }
 
+const SKY_DAY = new THREE.Color(0x8ea6cf);
+const SKY_NIGHT = new THREE.Color(0x0b0e1a);
+
 export default class City {
   constructor(scene) {
     this.colliders = [];
     this.scene = scene;
+    this.lampBulbMaterial = null;
+    this.buildLights();
     this.buildGround();
     this.buildBlocks();
     this.buildRoadMarks();
     this.buildProps();
+  }
+
+  applyDayNight(daylight) {
+    this.sunLight.intensity = 0.15 + daylight * 1.5;
+    this.hemiLight.intensity = 0.2 + daylight * 1.0;
+    this.lampBulbMaterial.emissiveIntensity = 0.3 + (1 - daylight) * 1.8;
+    const sky = SKY_NIGHT.clone().lerp(SKY_DAY, daylight);
+    this.scene.background = sky;
+    this.scene.fog.color.copy(sky);
+  }
+
+  buildLights() {
+    this.hemiLight = new THREE.HemisphereLight(0xbfd4ff, 0x12162b, 1.2);
+    this.scene.add(this.hemiLight);
+
+    this.sunLight = new THREE.DirectionalLight(0xffffff, 1.6);
+    this.sunLight.position.set(12, 24, 8);
+    this.scene.add(this.sunLight);
   }
 
   buildGround() {
@@ -156,6 +179,11 @@ export default class City {
   buildProps() {
     const lampGeometry = new THREE.BoxGeometry(0.4, 5, 0.4);
     const lampMaterial = new THREE.MeshStandardMaterial({ color: 0x6a74a0 });
+    this.lampBulbMaterial = new THREE.MeshStandardMaterial({
+      color: 0xfff2c0,
+      emissive: 0xffd77a,
+      emissiveIntensity: 1.2
+    });
     for (const line of ROAD_LINES) {
       for (const along of [-MAP_HALF + 10, -20, 20, MAP_HALF - 10]) {
         for (const side of [-6, 6]) {
@@ -165,11 +193,7 @@ export default class City {
 
           const bulb = new THREE.Mesh(
             new THREE.SphereGeometry(0.3, 8, 8),
-            new THREE.MeshStandardMaterial({
-              color: 0xfff2c0,
-              emissive: 0xffd77a,
-              emissiveIntensity: 1.2
-            })
+            this.lampBulbMaterial
           );
           bulb.position.set(line + side, 5.2, along);
           this.scene.add(bulb);

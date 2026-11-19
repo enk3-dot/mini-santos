@@ -60,9 +60,17 @@ export default class Car {
       this.group.add(wheel);
     }
 
+    this.headlight = new THREE.PointLight(0xfff2c0, 0, 14);
+    this.headlight.position.set(0, 1, 2.3);
+    this.group.add(this.headlight);
+
     this.group.position.copy(this.position);
     this.group.rotation.y = heading;
     scene.add(this.group);
+  }
+
+  updateHeadlights(night) {
+    this.headlight.intensity = Math.max(0, night) * 2.2;
   }
 
   forward() {

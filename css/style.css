@@ -72,6 +72,16 @@ canvas {
   opacity: 1;
 }
 
+#minimap {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  border: 2px solid #2b3160;
+  border-radius: 10px;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
 #overlay {
   position: fixed;
   inset: 0;

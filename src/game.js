@@ -3,6 +3,8 @@ import City from "./city.js";
 import Player from "./player.js";
 import Car from "./car.js";
 import NPC from "./npc.js";
+import TrafficCar from "./traffic.js";
+import Minimap from "./minimap.js";
 import Missions from "./missions.js";
 import Input from "./input.js";
 
@@ -54,11 +56,19 @@ export default class Game {
 
     this.cars = [];
     this.spawnCars();
+    this.traffic = [];
+    for (let i = 0; i < 8; i++) this.traffic.push(new TrafficCar(this.scene));
     this.npcs = [];
     for (let i = 0; i < 16; i++) this.npcs.push(new NPC(this.scene, this.city));
 
     this.missions = new Missions(this.scene, this);
+    this.minimap = new Minimap(document.getElementById("minimap"));
     this.cameraFocus = new THREE.Vector3();
+
+    this.dayRate = 1 / 150;
+    this.dayTime = 0.25;
+    this.daylight = 1;
+    this.city.applyDayNight(this.daylight);
 
     window.addEventListener("resize", () => this.onResize());
   }
@@ -184,11 +194,36 @@ export default class Game {
     this.showToast(`Now playing as ${character.name}`);
   }
 
+  updateDayNight(dt) {
+    this.dayTime = (this.dayTime + dt * this.dayRate) % 1;
+    this.daylight = Math.max(0.05, Math.min(1, Math.sin(this.dayTime * Math.PI * 2) * 0.6 + 0.6));
+    this.city.applyDayNight(this.daylight);
+
+    const night = 1 - this.daylight;
+    for (const car of this.cars) car.updateHeadlights(night * (0.25 + night * 0.75));
+    for (const trafficCar of this.traffic) trafficCar.headlight.intensity = night * 2.2;
+    if (this.police) this.police.updateHeadlights(night);
+    if (this.currentCar) this.currentCar.updateHeadlights(night);
+  }
+
+  obstaclesForTraffic(self) {
+    const list = [];
+    if (this.police) list.push(this.police.position);
+    for (const car of this.cars) list.push(car.position);
+    for (const trafficCar of this.traffic) {
+      if (trafficCar !== self) list.push(trafficCar.group.position);
+    }
+    list.push(this.mode === "driving" ? this.playerCar.position : this.player.position);
+    return list;
+  }
+
   update(dt) {
     if (this.state !== "playing") {
       this.idleCamera();
       return;
     }
+
+    this.updateDayNight(dt);
 
     if (this.input.consumeInteract()) this.tryInteract();
     if (this.input.consumeSwitch()) this.switchCharacter();
@@ -227,6 +262,7 @@ export default class Game {
     this.updatePolice(dt);
     this.missions.update(dt);
     this.updateCamera(dt);
+    this.minimap.update(this);
     this.updateHud();
   }
 
